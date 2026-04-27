@@ -2,6 +2,14 @@ poll_interval_seconds: 20
 state_path: state/seen_trades.json
 log_path: logs/agent.log
 
+stop:
+  # Leave unset for an always-on daemon. Uncomment any condition to exit cleanly.
+  # max_cycles: 100
+  # max_runtime_seconds: 3600
+  # max_submitted_orders: 2
+  # max_detected_opportunities: 5
+  stop_file: state/STOP
+
 risk:
   dry_run: true
   max_contracts_per_order: 1
@@ -26,3 +34,30 @@ markets:
       "Yes": "yes"
       "No": "no"
     notes: "Only enable after manually verifying the resolution criteria match."
+
+rules:
+  market_discovery:
+    - name: Find open tennis markets
+      enabled: false
+      include_keywords: ["tennis"]
+      exclude_keywords: ["closed", "settled"]
+      status: open
+      limit: 100
+
+  arbitrage_pairs:
+    - name: Tennis match two-player complement example
+      enabled: false
+      category: tennis
+      max_combined_price_cents: 99
+      min_profit_cents: 1
+      min_size: 1
+      max_contracts: 1
+      execute: false
+      acknowledge_sequential_execution_risk: false
+      leg_a:
+        ticker: "TENNIS-PLAYERA-WINS"
+        side: yes
+      leg_b:
+        ticker: "TENNIS-PLAYERB-WINS"
+        side: yes
+      notes: "Only enable after verifying exactly one of these two YES contracts settles to 100."

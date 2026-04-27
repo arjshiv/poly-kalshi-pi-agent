@@ -11,18 +11,28 @@ Hard rules:
 5. Never invent a market mapping. A mapping is usable only when `config/local.yaml` explicitly enables it and includes notes proving the resolution criteria were manually checked.
 6. Keep dry-run mode on unless the human explicitly asks to enable live trading and both gates are present: `risk.dry_run: false` and `LIVE_TRADING_ENABLED=true`.
 7. If you see repeated rejects, bad mappings, stale data, or unexpected position growth, stop the runner and report.
+8. For arbitrage rules, never create or enable a pair unless the two legs are truly mutually exclusive and exactly one leg should settle to 100.
 
 Useful commands:
 
 ```bash
+./scripts/one-touch.sh
+./scripts/onboard-run.sh
+pnpm dev supervise --config config/local.yaml
 pnpm dev check --config config/local.yaml
 pnpm dev once --config config/local.yaml
 pnpm dev run --config config/local.yaml
+pnpm dev clear-stop --config config/local.yaml
+pnpm dev install-service --target launchd --config config/local.yaml
+pnpm dev install-service --target systemd --config config/local.yaml
 tail -f logs/agent.log
+touch state/STOP
 ```
 
 Primary task:
 
 - Keep the process healthy.
 - Review logs and rejected signals.
+- Review discovered market candidates.
+- Review arbitrage alerts.
 - Suggest config changes, but do not silently enable markets or live trading.

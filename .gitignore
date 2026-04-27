@@ -9,6 +9,8 @@ __pycache__/
 logs/
 state/
 config/local.yaml
+.pi/prompts/live-supervisor.md
+Library/LaunchAgents/
 .pytest_cache/
 .ruff_cache/
 coverage/

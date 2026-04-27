@@ -1,84 +1,354 @@
 # Poly Kalshi Pi Agent
 
-Small, safe-by-default agent for using public/read-only Polymarket trades as a signal and placing matching limit orders on Kalshi.
+Small TypeScript agent for running compliant, safe-by-default Kalshi automation with Pi/OpenClaw supervision.
 
-This does **not** trade on Polymarket and does not attempt to bypass Polymarket geographic restrictions. Polymarket is treated as an external public data source. Kalshi is the execution venue.
+Polymarket is read-only signal/data input only. The agent does **not** trade on Polymarket and does not attempt to bypass Polymarket geographic restrictions. Kalshi is the execution venue.
+
+## Architecture
+
+```text
+Kalshi + read-only Polymarket data
+  -> deterministic TypeScript agent
+  -> JSON logs + local state + risk gates
+  -> optional Kalshi limit orders
+
+Pi / OpenClaw / Codex
+  -> supervises logs and config
+  -> judges market mappings and rule sanity
+  -> can stop the loop
+  -> does not directly place orders
+
+launchd / systemd / local shell
+  -> keeps the TypeScript loop running
+```
+
+The LLM is deliberately outside the hot execution path. Use Pi/Codex to review candidates, spot bad assumptions, and operate the repo. The TypeScript code decides what is allowed to become an order.
 
 ## What It Does
 
-- Polls Polymarket `data-api.polymarket.com/trades` for configured watcher wallets and mapped markets.
+- Polls Polymarket public trade data for configured watcher wallets and mapped markets.
 - Converts matching Polymarket `BUY Yes/No` signals into Kalshi limit-order proposals.
+- Discovers Kalshi markets by keyword, for example open tennis markets.
+- Supports explicit arbitrage rules, for example two mutually exclusive tennis legs where executable asks sum below $1.
 - Applies risk gates before any order is created.
 - Runs in dry-run mode by default.
-- Places Kalshi orders only when both config `risk.dry_run: false` and env `LIVE_TRADING_ENABLED=true` are set.
-- Keeps a local seen-trade state file to avoid duplicate orders.
+- Places Kalshi orders only when all live-trading gates are enabled.
+- Keeps local state to avoid duplicate execution.
+- Stops cleanly when configured stop conditions are met.
+- Generates Pi/OpenClaw supervisor prompts.
+- Installs launchd or systemd service files for always-on operation.
 
-## Setup
+## First-Time Setup
 
 ```bash
 cd ~/GitHub/poly-kalshi-pi-agent
-pnpm install
-cp .env.example .env
-cp config/example.yaml config/local.yaml
+./scripts/one-touch.sh
 ```
 
-Edit `config/local.yaml`:
+This installs dependencies, creates `.env` and `config/local.yaml` if missing, runs onboarding checks, and writes `.pi/prompts/live-supervisor.md`.
 
-- Add watcher wallet addresses.
-- Add exact market mappings.
-- Keep `enabled: false` until you manually verify resolution rules.
-- Keep `risk.dry_run: true` while testing.
-
-Edit `.env`:
-
-- Set `KALSHI_ENV=demo` first.
-- Add `KALSHI_API_KEY_ID`.
-- Set `KALSHI_PRIVATE_KEY_PATH=/absolute/path/to/kalshi.key`.
-
-## Commands
+Then edit `.env`:
 
 ```bash
+KALSHI_ENV=demo
+KALSHI_API_KEY_ID=your_key_id
+KALSHI_PRIVATE_KEY_PATH=/absolute/path/to/kalshi-private-key.pem
+LIVE_TRADING_ENABLED=false
+```
+
+Start in `demo` and dry-run mode.
+
+## Every-Time Run Flow
+
+Use this when you want to run the bot:
+
+```bash
+./scripts/onboard-run.sh
+```
+
+That runs onboarding/supervisor preflight first, then starts the continuous loop only if there are no blockers.
+
+Equivalent manual flow:
+
+```bash
+pnpm dev supervise --config config/local.yaml
 pnpm dev check --config config/local.yaml
 pnpm dev once --config config/local.yaml
 pnpm dev run --config config/local.yaml
 ```
 
-`check` validates config and Kalshi auth configuration without placing orders.
+## Commands
 
-`once` runs one polling cycle.
+```bash
+pnpm dev onboard --config config/local.yaml
+pnpm dev supervise --config config/local.yaml
+pnpm dev check --config config/local.yaml
+pnpm dev once --config config/local.yaml
+pnpm dev run --config config/local.yaml
+pnpm dev write-pi-prompt --config config/local.yaml
+pnpm dev clear-stop --config config/local.yaml
+pnpm dev install-service --target launchd --config config/local.yaml
+pnpm dev install-service --target systemd --config config/local.yaml
+```
 
-`run` loops forever and is suitable for a MacBook, VPS, or `systemd` user service.
+Command meanings:
+
+- `onboard`: creates missing local files and reports blockers/warnings.
+- `supervise`: runs onboarding checks, writes `.pi/prompts/live-supervisor.md`, and prints the active config summary.
+- `check`: validates config and auth gates without placing orders.
+- `once`: runs one polling/scanning cycle.
+- `run`: loops continuously until stopped.
+- `write-pi-prompt`: writes the Pi/OpenClaw live supervisor prompt.
+- `clear-stop`: removes the configured stop file if a previous run was stopped.
+- `install-service`: writes a launchd or systemd service file.
+
+## Pi / OpenClaw / Codex Harness
+
+Pi is the supervisor harness. The trading loop is still the TypeScript daemon.
+
+Pi should do:
+
+- Run `pnpm dev supervise --config config/local.yaml`.
+- Tail `logs/agent.log`.
+- Review discovered markets and arbitrage alerts.
+- Judge whether two markets are truly complementary.
+- Suggest config edits.
+- Stop the loop with `touch state/STOP` when behavior looks wrong.
+
+Pi should **not** do:
+
+- Directly call Kalshi order endpoints.
+- Override risk limits.
+- Invent live market pairs without human review.
+- Decide a sub-second order from an LLM response.
+
+Useful Pi prompt files:
+
+- `.pi/prompts/operator.md`
+- `.pi/prompts/live-supervisor.md`
+
+The agent does not need a separate LLM API key. Pi/OpenClaw can use your Codex/ChatGPT subscription to supervise the repo.
+
+## Continuous Operation
+
+Local foreground loop:
+
+```bash
+pnpm dev run --config config/local.yaml
+```
+
+Mac always-on mode:
+
+```bash
+pnpm dev install-service --target launchd --config config/local.yaml
+launchctl load ~/Library/LaunchAgents/ai.openclaw.poly-kalshi-pi-agent.plist
+launchctl start ai.openclaw.poly-kalshi-pi-agent
+```
+
+Stop Mac service:
+
+```bash
+launchctl stop ai.openclaw.poly-kalshi-pi-agent
+launchctl unload ~/Library/LaunchAgents/ai.openclaw.poly-kalshi-pi-agent.plist
+```
+
+VPS always-on mode:
+
+```bash
+pnpm dev install-service --target systemd --config config/local.yaml
+systemctl --user daemon-reload
+systemctl --user enable --now poly-kalshi-pi-agent.service
+```
+
+Check/stop VPS service:
+
+```bash
+systemctl --user status poly-kalshi-pi-agent.service
+systemctl --user stop poly-kalshi-pi-agent.service
+```
+
+## Stop Conditions
+
+By default, `run` loops continuously. Add any stop condition to `config/local.yaml`:
+
+```yaml
+stop:
+  max_cycles: 100
+  max_runtime_seconds: 3600
+  max_submitted_orders: 2
+  max_detected_opportunities: 5
+  stop_file: state/STOP
+```
+
+Manual stop:
+
+```bash
+mkdir -p state
+touch state/STOP
+```
+
+Clear a previous stop before starting again:
+
+```bash
+pnpm dev clear-stop --config config/local.yaml
+```
+
+The agent checks stop conditions between cycles and exits cleanly.
+
+## Configuring Rules
+
+Edit `config/local.yaml`. Keep `execute: false` while reviewing.
+
+Discovery example:
+
+```yaml
+rules:
+  market_discovery:
+    - name: Find open tennis markets
+      enabled: true
+      include_keywords: ["tennis"]
+      exclude_keywords: ["closed", "settled"]
+      status: open
+      limit: 100
+```
+
+Tennis complement arbitrage example:
+
+```yaml
+rules:
+  arbitrage_pairs:
+    - name: Tennis A/B moneyline
+      enabled: true
+      max_combined_price_cents: 99
+      min_profit_cents: 1
+      min_size: 1
+      max_contracts: 1
+      execute: false
+      acknowledge_sequential_execution_risk: false
+      leg_a:
+        ticker: "TENNIS-PLAYERA-WINS"
+        side: yes
+      leg_b:
+        ticker: "TENNIS-PLAYERB-WINS"
+        side: yes
+      notes: "Exactly one of these two YES contracts should settle to 100; manually verified rules and settlement source."
+```
+
+The rule detects:
+
+```text
+leg_a_yes_ask + leg_b_yes_ask < 100 cents
+```
+
+Only enable a pair after checking:
+
+- Same event.
+- Same participants.
+- Same settlement source.
+- Same cutoff time/timezone.
+- Exactly one leg should settle to 100.
+- No cancellation, retirement, walkover, void, or tie edge case breaks the complement.
+- Enough orderbook size exists for your configured `max_contracts`.
+
+## Polymarket Wallet-Copy Signals
+
+Polymarket signals are read-only. Add watcher wallets and market mappings:
+
+```yaml
+watchers:
+  - name: example-wallet
+    polymarket_user: "0x0000000000000000000000000000000000000000"
+
+markets:
+  - name: Example manually verified mapping
+    enabled: false
+    polymarket_condition_id: "0x0000000000000000000000000000000000000000000000000000000000000000"
+    kalshi_ticker: "EXAMPLE-26DEC31-Y"
+    outcome_map:
+      "Yes": "yes"
+      "No": "no"
+    notes: "Only enable after manually verifying the resolution criteria match."
+```
+
+Keep mappings disabled until resolution rules match exactly.
 
 ## Live Trading Gate
 
-Live order placement requires both:
+Live Kalshi order placement requires all relevant gates:
 
 ```yaml
 risk:
   dry_run: false
 ```
 
-and:
-
 ```bash
 LIVE_TRADING_ENABLED=true
 ```
 
-This double gate is deliberate.
+For arbitrage rules:
 
-## Pi / OpenClaw Use
-
-The `.pi/prompts/operator.md` prompt tells a Pi/OpenClaw agent how to operate this repo. Use it for supervision, logs, config review, and dry-run analysis. Do not let an LLM freely choose markets or place trades without deterministic config and risk limits.
-
-## Deployment Sketch
-
-For a VPS:
-
-```bash
-cd ~/GitHub/poly-kalshi-pi-agent
-pnpm install --prod
-pnpm build
-node dist/cli.js run --config config/local.yaml
+```yaml
+rules:
+  arbitrage_pairs:
+    - execute: true
+      acknowledge_sequential_execution_risk: true
 ```
 
-For `systemd`, run the same command from a user service and store `.env`, `config/local.yaml`, and the Kalshi private key with user-only permissions.
+Arbitrage orders are currently submitted as two sequential Kalshi limit orders. That means live execution can leave one leg unhedged if the second order fails or the book moves. Keep `execute: false` unless you explicitly accept that operational risk.
+
+For normal signal copy:
+
+- The market mapping must be `enabled: true`.
+- The signal must pass size, staleness, side, notional, and order-count limits.
+
+This double/triple gate is deliberate. Dry-run should be the default operating mode.
+
+## Logs And State
+
+Important local files:
+
+```text
+logs/agent.log       JSON event log
+state/seen_trades.json
+state/STOP           optional stop file
+config/local.yaml    local config, ignored by git
+.env                 local secrets, ignored by git
+```
+
+Inspect logs:
+
+```bash
+tail -f logs/agent.log
+```
+
+## Recommended Operating Pattern
+
+1. Run `./scripts/one-touch.sh`.
+2. Fill `.env`.
+3. Enable discovery rules only.
+4. Run `pnpm dev once --config config/local.yaml`.
+5. Review discovered markets.
+6. Add explicit arbitrage pair rules with notes.
+7. Keep `execute: false` and run dry-run.
+8. Let Pi/Codex review `logs/agent.log` and config.
+9. Only then consider `execute: true`, `risk.dry_run: false`, and `LIVE_TRADING_ENABLED=true`.
+10. Keep `stop_file: state/STOP` configured.
+
+## Safety Boundaries
+
+- No Polymarket trading.
+- No VPN/geofence bypass.
+- No LLM-driven direct execution.
+- No live trading without config and env gates.
+- No market pair is safe until the settlement rules are manually checked.
+- No service mode without log monitoring and a kill switch.
+
+## Verification
+
+```bash
+pnpm check
+pnpm test
+pnpm lint
+pnpm build
+pnpm dev check --config config/example.yaml
+```
