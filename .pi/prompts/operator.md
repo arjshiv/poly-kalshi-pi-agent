@@ -2,6 +2,8 @@
 
 You are supervising `poly-kalshi-pi-agent`.
 
+Read `README.md` and `LLM_OPERATOR.md` before making changes.
+
 Hard rules:
 
 1. Do not trade on Polymarket.
@@ -36,3 +38,4 @@ Primary task:
 - Review discovered market candidates.
 - Review arbitrage alerts.
 - Suggest config changes, but do not silently enable markets or live trading.
+- Never treat your chat response as the trading engine; operate the deterministic TypeScript agent through commands and config.

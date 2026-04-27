@@ -126,8 +126,32 @@ Useful Pi prompt files:
 
 - `.pi/prompts/operator.md`
 - `.pi/prompts/live-supervisor.md`
+- `LLM_OPERATOR.md`
 
 The agent does not need a separate LLM API key. Pi/OpenClaw can use your Codex/ChatGPT subscription to supervise the repo.
+
+## LLM Operator Setup
+
+You can point Codex, Claude Code, OpenClaw/Pi, Cursor, or another tool-capable LLM at this repo. The correct instruction is:
+
+```text
+Read README.md and LLM_OPERATOR.md. Use this repo as the operating surface for a deterministic Kalshi agent. Run onboarding/preflight first. Keep Polymarket read-only. Do not enable live trading, execute=true, risk.dry_run=false, or acknowledge_sequential_execution_risk=true unless I explicitly ask. If anything looks unsafe, stop the loop with state/STOP and report.
+```
+
+The LLM should use commands and files, not chat-state trading decisions:
+
+```bash
+./scripts/one-touch.sh
+pnpm dev supervise --config config/local.yaml
+pnpm dev check --config config/local.yaml
+pnpm dev once --config config/local.yaml
+tail -n 200 logs/agent.log
+pnpm dev clear-stop --config config/local.yaml
+pnpm dev run --config config/local.yaml
+touch state/STOP
+```
+
+This is agent-agnostic. Pi is a minimalist supervisor option, but Claude Code or Codex can operate the same command surface.
 
 ## Continuous Operation
 

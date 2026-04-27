@@ -54,10 +54,12 @@ pnpm dev once --config config/local.yaml
 
 ## Pi Operator Loop
 
-Use `.pi/prompts/operator.md` with OpenClaw/Pi to:
+Use `LLM_OPERATOR.md` and `.pi/prompts/operator.md` with Codex, Claude Code, OpenClaw/Pi, or another tool-capable LLM to:
 
 - Check process health.
 - Tail `logs/agent.log`.
 - Review dry-run proposals.
 - Suggest mapping changes.
 - Stop the process on unexpected rejects, duplicate behavior, or position growth.
+
+The LLM operates commands, config, logs, and stop files. It is not the trading engine.
