@@ -1,0 +1,28 @@
+poll_interval_seconds: 20
+state_path: state/seen_trades.json
+log_path: logs/agent.log
+
+risk:
+  dry_run: true
+  max_contracts_per_order: 1
+  max_notional_cents_per_order: 75
+  max_orders_per_cycle: 2
+  min_source_trade_size: 5.0
+  max_source_trade_age_seconds: 180
+  price_improvement_cents: 1
+  allowed_sides: ["BUY"]
+
+watchers:
+  - name: example-wallet
+    polymarket_user: "0x0000000000000000000000000000000000000000"
+
+markets:
+  - name: Example mapping - replace before live use
+    enabled: false
+    polymarket_condition_id: "0x0000000000000000000000000000000000000000000000000000000000000000"
+    polymarket_slug: "example-market-slug"
+    kalshi_ticker: "EXAMPLE-26DEC31-Y"
+    outcome_map:
+      "Yes": "yes"
+      "No": "no"
+    notes: "Only enable after manually verifying the resolution criteria match."
